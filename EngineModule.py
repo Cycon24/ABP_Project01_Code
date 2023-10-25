@@ -26,6 +26,8 @@ class Stage():
         self.R = 287 # J/kg*K
         self.gam_a = 1.4
         self.gam_g = 4/3
+        self.cp_a = 1.005 # kJ/kg*K
+        self.cp_g = 1.148 # kJ/kg*K
         # General properties that could be used by all
         # stages 
         self.Toi = kwargs.get('Toi')
@@ -147,11 +149,37 @@ class Compressor(Stage):
         
         
 class Combustor(Stage):
-    def __init_(self, **kwargs):
+    def __init__(self, **kwargs):
         Stage.__init__(self, **kwargs)
         self.dT = kwargs.get('dTb')
-        # Hello
-        print(None)
+        self.dP = kwargs.get('dPb_dec', 0) # the pressure loss within the compressor as a decimal (0.05 = 5% loss)
+        self.f  = kwargs.get('f')
+        self.Q  = kwargs.get('Q_fuel')
+        self.nb = kwargs.get('nb', 1) # Combustor efficiency
+        
+    def calculate(self):
+        # Assuming we have the Ti and Pi from compressor/prev stage
+        # We need to have the exit 
+        if self.Te == None: 
+            # No Turbine inlet temp given
+            if self.dT == None: 
+                # No combustor increase temp given
+                if self.f == None and self.Q == None:
+                    # No air-fuel ratio given, cant calculate temps
+                    raise EngineErrors.MissingValue('Te, dT, or f&Q','Combustor')
+                else: 
+                    # We have f and Q to calculate exit temp
+                    f_ideal = self.f*self.nb # inputted f would be actual
+                    self.Te = (f_ideal*self.Q + self.cp_a*self.Ti)/(self.cpg(1+f_ideal))
+            else:
+                # We dont have exit temp, but do have temp increase
+                self.Te = self.Ti + self.dT
+         # else: Dont need to use since we have what we need
+             # We have turbine inlet temp (Te)
+             
+        self.Pe = self.Pi(1-self.dP)
+        self.dT = self.Te - self.Ti # will use later for f calcs
+         
 
 class Turbine(Stage):
     def __init_(self, **kwargs):
