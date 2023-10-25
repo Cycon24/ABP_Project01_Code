@@ -72,7 +72,7 @@ class Stage():
         if self.Toe != None:
             print('\t Toe = {} K'.format(form).format(self.Toe))
         if self.Poe != None:
-            print('\t Poe = {}'.format(form).format(self.Poe))
+            print('\t Poe = {} '.format(form).format(self.Poe))
         if self.Te != None:
             print('\t Te  = {} K'.format(form).format(self.Te))
         if self.Pe != None:
@@ -83,7 +83,7 @@ class Stage():
         if self.Ve != None:
             print('\t Ve  = {} m/s'.format(form).format(self.Ve))
         if self.Power != None:
-            print('\t Pow = {} '.format(form).format(self.Power))
+            print('\t Pow = {} W'.format(form).format(self.Power))
         
         
 class Intake(Stage):
@@ -302,80 +302,57 @@ class Turbofan():
         # Efficiencies
         ni = kwargs.get('ni',1) # Inlet
         nj = kwargs.get('nj',1) # Nozzle
+        nf = kwargs.get('nf',1) # Compressor - Isentropic
         nc = kwargs.get('nc',1) # Compressor - Isentropic
         nt = kwargs.get('nt',1) # Turbine - Isentropic
         nb = kwargs.get('nb',1) # Cobustor
         nm = kwargs.get('nm',1) # Mechanical
-        
-
-        dP_b = 0.06 
-
-        Ta = 216.66 # K
-        Pa = 0.224 # bar
-        rfan = 1.55
-        rc = 35/rfan
-        Ttoi = 1350 # K - Turbine inlet temp
-        BPR = 6.2
-
-        mdot = 220 # kg/s
-        Mi  = 0.85 # Mach
-
-        gen_kwargs = {
-            'Ta': Ta,
-            'Pa': Pa,
-            'Minf':Mi,
-            'np':np}
-
+        npf = kwargs.get('npf') # Fan - Polytropic
+        npc = kwargs.get('npc') # Compressor - Polytropic
+        npt = kwargs.get('npt') # Turbine - Polytropic
+        # Pressure Ratios/Relations
+        dP_b = kwargs.get('dP_combustor') # Decimal pressure drop in combustor
+        rfan = kwargs.get('rfan') # Fan PR
+        rc   = kwargs.get('rc')   # Compressor PR
+        BPR = kwargs.get('BPR',1) # Bypass Ratio
+        # Turbine Inlet
+        To_ti = kwargs.get('T_turb_in') # K - Turbine inlet temp
+        # Air Mass flow
+        mdot = kwargs.get('mdot_a') # kg/s
         
         
+        self.inlet = Intake(**gen_kwargs,ni=ni,m_dot=mdot)
+        self.fan = Compressor(**gen_kwargs, rc=rfan, BPR=BPR, np=npf, ni=nf)
+        self.BP_nozzle = Nozzle('cold',**gen_kwargs, ni=nj)
+        self.HP_comp = Compressor(**gen_kwargs, rc=rc, np=npc, ni=nc)
+        self.combustor = Combustor(**gen_kwargs, Toe=To_ti, dPb_dec=dP_b, ni=nb)
+        self.HP_turb = Turbine(self.HP_comp, **gen_kwargs, nm=nm, ni=nt, np=npt)
+        self.LP_turb = Turbine(self.fan, **gen_kwargs, nm=nm, ni=nt, np=npt)
+        self.nozzle = Nozzle(**gen_kwargs, ni=nj) # Nozzle/Exhaust?
         
+        self.AllStages = [[self.inlet, None ],
+                          [self.fan, None], 
+                          [self.HP_comp,  self.BP_nozzle],
+                          [self.combustor,None],
+                          [self.HP_turb, None],
+                          [self.LP_turb, None],
+                          [self.nozzle, None]]
         
-        self.inlet = Intake()
-        self.fan = Compressor()
-        self.BP_nozzle = Nozzle()
-        # self.LP_comp = Compressor()
-        self.HP_comp = Compressor()
-        self.combustor = Combustor()
-        self.HP_turb = Turbine(self.HP_comp)
-        self.LP_turb = Turbine(self.fan)
-        self.nozzle = Nozzle() # Nozzle/Exhaust?
-        
-        self.AllStages = [self.inlet, self.fan, self.BP_nozzle, self.LP_comp, self.HP_comp, self.combustor, self.HP_turb, self.LP_turb, self.nozzle]
-        
-    def dsjkfiosjk():
-        intk = EM.Intake(**gen_kwargs, ni=ni,m_dot=mdot)
-        fan = EM.Compressor(**gen_kwargs, rc=rfan, BPR=BPR)
-        hpc = EM.Compressor(**gen_kwargs, rc=rc)
-        combust = EM.Combustor(**gen_kwargs, Toe=Ttoi, dPb_dec=dP_b)
-        hpt = EM.Turbine(hpc, **gen_kwargs)
-        lpt = EM.Turbine(fan, **gen_kwargs)
-        exh_c  = EM.Nozzle('cold', **gen_kwargs)
-        exh_h  = EM.Nozzle(**gen_kwargs)
-
-        intk.calculate()
-        intk.forward(fan)
-        fan.calculate()
-        fan.forward(hpc,exh_c)
-        # Cold
-        exh_c.calculate()
-        # Hot
-        hpc.calculate()
-        hpc.forward(combust)
-        combust.calculate()
-        combust.forward(hpt)
-        hpt.calculate()
-        hpt.forward(lpt)
-        lpt.calculate()
-        lpt.forward(exh_h)
-        exh_h.calculate()
-
-        intk.printOutputs()
-        fan.printOutputs()
-        exh_c.printOutputs()
-        hpc.printOutputs()
-        combust.printOutputs()
-        hpt.printOutputs()
-        lpt.printOutputs()
-        exh_h.printOutputs()
-        
-        
+    def calculate(self):
+        for i in range(0,len(self.AllStages)):
+            # Calculate each row and print outputs
+            self.AllStages[i][0].calculate()
+            self.AllStages[i][0].printOutputs()
+            if self.AllStages[i][1] != None:
+                self.AllStages[i][1].calculate()
+                self.AllStages[i][1].printOutputs()
+                
+            # Move forward
+            if i != len(self.AllStages)-1: # It is not at the end, so forward
+                if self.AllStages[i+1][1] != None: 
+                    # Means that this stage delivers to two stages -> fan
+                    self.AllStages[i,0].forward(self.allStages[i+1][0],self.allStages[i+1][1])
+                else:
+                    self.AllStages[i,0].forward(self.allStages[i+1][0])
+                    
+    
