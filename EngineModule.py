@@ -30,10 +30,13 @@ class Stage():
         self.gam_g = 4/3
         self.cp_a = 1.005 # kJ/kg*K
         self.cp_g = 1.148 # kJ/kg*K
-        # General properties that could be used by all
-        # stages 
-        self.Ta  = kwargs.get('Ta') # so all components know the atm conditions
+        # General properties that could be used by all stages 
+        # so all components know the atm conditions
+        self.Ta  = kwargs.get('Ta') 
         self.Pa  = kwargs.get('Pa')
+        self.Vinf = kwargs.get('Vinf')
+        self.Minf = kwargs.get('Minf')
+        
         self.Toi = kwargs.get('Toi')
         self.Poi = kwargs.get('Poi')
         self.Ti  = kwargs.get('Ti')
@@ -51,6 +54,9 @@ class Stage():
         self.Me  = kwargs.get('Me')
         self.Ve  = kwargs.get('Ve')
         
+        self.StageName = ""
+        self.Power = None
+        
     def forward(self, next_Stage):
         next_Stage.Toi = self.Toe
         next_Stage.Poi = self.Poe
@@ -59,16 +65,39 @@ class Stage():
         next_Stage.Mi  = self.Me
         next_Stage.Vi  = self.Ve
         next_Stage.m_dot = self.m_dot
-        
+    
+    def printOutputs(self):
+        form ='{:9.3f}'
+        print('Stage: ', self.StageName)
+        if self.Toe != None:
+            print('\t Toe = {} K'.format(form).format(self.Toe))
+        if self.Poe != None:
+            print('\t Poe = {}'.format(form).format(self.Poe))
+        if self.Te != None:
+            print('\t Te  = {} K'.format(form).format(self.Te))
+        if self.Pe != None:
+            print('\t Pe  = {}'.format(form).format(self.Pe))
+        print('\tmdot = {} kg/s'.format(form).format(self.m_dot))
+        if self.Me != None:
+            print('\t Me  = {}'.format(form).format(self.Me))
+        if self.Ve != None:
+            print('\t Ve  = {} m/s'.format(form).format(self.Ve))
+        if self.Power != None:
+            print('\t Pow = {} '.format(form).format(self.Power))
         
         
 class Intake(Stage):
     def __init__(self, **kwargs):
         Stage.__init__(self, **kwargs)
+        self.StageName = "Intake"
         # NOTE: Ram efficiency ~= Isentropic Efficiency
         
     def calculate(self):
-        # Always assume Pi and Ti are given (atmos conditions)
+        # Always assume Pi/Pa and Ti/Ta are given (atmos conditions)
+        self.Pi = self.Pa
+        self.Ti = self.Ta
+        self.Vi = self.Vinf
+        self.Mi = self.Minf
         # If no vel or mach num inputted, assume stationary
         if self.Mi == None:
             if self.Vi == None:
@@ -84,9 +113,10 @@ class Intake(Stage):
 class Compressor(Stage):
     def __init__(self, **kwargs):
         Stage.__init__(self, **kwargs)
+        self.StageName = "Compressor"
         # Adding PR and BPR
         self.r = kwargs.get('rc') # Pressure Ratio of stage
-        self.BPR = kwargs.get('BPR', default=1) # Bypass Ratio: total mass flow (air)/mass flow through core
+        self.BPR = kwargs.get('BPR', 1) # Bypass Ratio: total mass flow (air)/mass flow through core
         self.np = kwargs.get('np') # Polytropic efficiency
         
     def calculate(self):
@@ -157,8 +187,9 @@ class Compressor(Stage):
 class Combustor(Stage):
     def __init__(self, **kwargs):
         Stage.__init__(self, **kwargs)
-        self.dT = kwargs.get('dTb')
-        self.dP = kwargs.get('dPb_dec', 0) # the pressure loss within the compressor as a decimal (0.05 = 5% loss)
+        self.StageName = "Combustor"
+        self.dTo = kwargs.get('dTb')
+        self.dPo = kwargs.get('dPb_dec', 0) # the pressure loss within the compressor as a decimal (0.05 = 5% loss)
         self.f  = kwargs.get('f')
         self.Q  = kwargs.get('Q_fuel')
         self.nb = kwargs.get('nb', 1) # Combustor efficiency
@@ -166,39 +197,40 @@ class Combustor(Stage):
     def calculate(self):
         # Assuming we have the Ti and Pi from compressor/prev stage
         # We need to have the exit 
-        if self.Te == None: 
+        if self.Toe == None: 
             # No Turbine inlet temp given
-            if self.dT == None: 
+            if self.dTo == None: 
                 # No combustor increase temp given
                 if self.f == None and self.Q == None:
                     # No air-fuel ratio given, cant calculate temps
-                    raise EngineErrors.MissingValue('Te, dT, or f&Q','Combustor')
+                    raise EngineErrors.MissingValue('Toe, dTo, or f&Q','Combustor')
                 else: 
                     # We have f and Q to calculate exit temp
                     f_ideal = self.f*self.nb # inputted f would be actual
-                    self.Te = (f_ideal*self.Q + self.cp_a*self.Ti)/(self.cpg(1+f_ideal))
+                    self.Toe = (f_ideal*self.Q + self.cp_a*self.Toi)/(self.cpg(1+f_ideal))
             else:
                 # We dont have exit temp, but do have temp increase
-                self.Te = self.Ti + self.dT
+                self.Toe = self.Toi + self.dTo
          # else: Dont need to use since we have what we need
              # We have turbine inlet temp (Te)
              
-        self.Pe = self.Pi(1-self.dP)
-        self.dT = self.Te - self.Ti # will use later for f calcs
+        self.Poe = self.Poi*(1-self.dPo)
+        self.dTo = self.Toe - self.Toi # will use later for f calcs
          
 
 class Turbine(Stage):
     def __init__(self, Comp_to_power, **kwargs):
         Stage.__init__(self, **kwargs)
-        self.np = self.kwargs('np') # Polytropic efficiency
-        self.nm = self.kwargs('nm',1)
-        self.Pc = Comp_to_power.Power # The power USAGE of compressor
+        self.StageName = "Turbine"
+        self.np = kwargs.get('np') # Polytropic efficiency
+        self.nm = kwargs.get('nm',1)
+        self.Compressor = Comp_to_power
         # Will have inlet temp, compressor power
-        self.r  = self.kwargs('rt') # Add for later, not used now
+        self.r  = kwargs.get('rt') # Add for later, not used now
         # this will be for generators or when turbine pressure ratio is specified
         
     def calculate(self):
-        self.Power = self.Pc/self.nm
+        self.Power = self.Compressor.Power/self.nm
         # Calculate exit temp
         self.Toe = self.Toi - self.Power/(self.m_dot*self.cp_g)
         
@@ -213,12 +245,12 @@ class Turbine(Stage):
                 self.np = 1
                 
         m_frac = self.np*(self.gam_g-1)/self.gam_g
-        self.Poe = self.Poi*(1- (self.Toi-self.Toe)/self.Ti )**(1/m_frac)
+        self.Poe = self.Poi*(1- (self.Toi-self.Toe)/self.Toi )**(1/m_frac)
         
 class Nozzle(Stage):
     def __init__(self, air_type='hot', **kwargs):
         Stage.__init__(self, **kwargs)
-        
+        self.StageName = "Nozzle"
         if air_type == 'hot':
             self.gam = self.gam_g
         else:
@@ -230,14 +262,15 @@ class Nozzle(Stage):
         Pc = self.Poi*(1 - (1/self.ni)*(1-Tc/self.Toi))**(self.gam/(self.gam-1))
         
         P_rat = self.Poi/self.Pa
-        P_crit = self.Poi/self.Pc
+        P_crit = self.Poi/Pc
         if P_rat > P_crit:
             # Nozzle is choked
-            self.Pe = self.Pc
+            self.Pe = Pc
         else:
             self.Pe = self.Pa
         # This equation remains the same
-        self.Te = self.Toi(1 - self.ni)*(1 - (self.Pe/self.Poi)**((self.gam-1)/self.gam))
+        self.Te = self.Toi*2/(self.gam+1)
+        #self.Toi*(1 - self.ni)*(1 - (self.Pe/self.Poi)**((self.gam-1)/self.gam))
     
             
 class Engine():
@@ -247,8 +280,8 @@ class Engine():
         # outlets of one stage is the inputs for the next stages
         
         
-class Turbofan(Engine):
-    def __init__(self):
+class Turbofan():
+    def __init__(self, **kwargs):
         # Stages
         # Atm moving
         # Inlet
@@ -260,6 +293,43 @@ class Turbofan(Engine):
         # HP Turbine
         # LP Turbine
         # Nozzle
+        
+        gen_kwargs = {
+            'Ta': kwargs.get('Ta'),
+            'Pa': kwargs.get('Pa'),
+            'Vinf': kwargs.get('Vinf'),
+            'Minf': kwargs.get('Minf')}
+        # Efficiencies
+        ni = kwargs.get('ni',1) # Inlet
+        nj = kwargs.get('nj',1) # Nozzle
+        nc = kwargs.get('nc',1) # Compressor - Isentropic
+        nt = kwargs.get('nt',1) # Turbine - Isentropic
+        nb = kwargs.get('nb',1) # Cobustor
+        nm = kwargs.get('nm',1) # Mechanical
+        
+
+        dP_b = 0.06 
+
+        Ta = 216.66 # K
+        Pa = 0.224 # bar
+        rfan = 1.55
+        rc = 35/rfan
+        Ttoi = 1350 # K - Turbine inlet temp
+        BPR = 6.2
+
+        mdot = 220 # kg/s
+        Mi  = 0.85 # Mach
+
+        gen_kwargs = {
+            'Ta': Ta,
+            'Pa': Pa,
+            'Minf':Mi,
+            'np':np}
+
+        
+        
+        
+        
         self.inlet = Intake()
         self.fan = Compressor()
         self.BP_nozzle = Nozzle()
@@ -272,4 +342,40 @@ class Turbofan(Engine):
         
         self.AllStages = [self.inlet, self.fan, self.BP_nozzle, self.LP_comp, self.HP_comp, self.combustor, self.HP_turb, self.LP_turb, self.nozzle]
         
-    
+    def dsjkfiosjk():
+        intk = EM.Intake(**gen_kwargs, ni=ni,m_dot=mdot)
+        fan = EM.Compressor(**gen_kwargs, rc=rfan, BPR=BPR)
+        hpc = EM.Compressor(**gen_kwargs, rc=rc)
+        combust = EM.Combustor(**gen_kwargs, Toe=Ttoi, dPb_dec=dP_b)
+        hpt = EM.Turbine(hpc, **gen_kwargs)
+        lpt = EM.Turbine(fan, **gen_kwargs)
+        exh_c  = EM.Nozzle('cold', **gen_kwargs)
+        exh_h  = EM.Nozzle(**gen_kwargs)
+
+        intk.calculate()
+        intk.forward(fan)
+        fan.calculate()
+        fan.forward(hpc,exh_c)
+        # Cold
+        exh_c.calculate()
+        # Hot
+        hpc.calculate()
+        hpc.forward(combust)
+        combust.calculate()
+        combust.forward(hpt)
+        hpt.calculate()
+        hpt.forward(lpt)
+        lpt.calculate()
+        lpt.forward(exh_h)
+        exh_h.calculate()
+
+        intk.printOutputs()
+        fan.printOutputs()
+        exh_c.printOutputs()
+        hpc.printOutputs()
+        combust.printOutputs()
+        hpt.printOutputs()
+        lpt.printOutputs()
+        exh_h.printOutputs()
+        
+        
