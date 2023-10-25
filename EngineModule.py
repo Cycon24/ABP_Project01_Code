@@ -30,6 +30,8 @@ class Stage():
         self.cp_g = 1.148 # kJ/kg*K
         # General properties that could be used by all
         # stages 
+        self.Ta  = kwargs.get('Ta') # so all components know the atm conditions
+        self.Pa  = kwargs.get('Pa')
         self.Toi = kwargs.get('Toi')
         self.Poi = kwargs.get('Poi')
         self.Ti  = kwargs.get('Ti')
@@ -98,7 +100,7 @@ class Compressor(Stage):
         n_frac =  (self.gam_a-1)/(self.gam_a*self.np)
         self.Toe = self.Toi + self.Toi*(self.r**n_frac - 1)
         self.Poe = self.r*self.Poi
-        self.Power = self.m_dot*self.cp_a*(self.Te-self.Ti)
+        self.Power = self.m_dot*self.cp_a*(self.Toe-self.Toi)
         # Done
         
     
@@ -196,7 +198,7 @@ class Turbine(Stage):
     def calculate(self):
         self.Power = self.Pc/self.nm
         # Calculate exit temp
-        self.Te = self.Ti - self.Power/(self.m_dot*self.cp_g)
+        self.Toe = self.Toi - self.Power/(self.m_dot*self.cp_g)
         
         if self.np == None:
             if self.r != None:
@@ -209,14 +211,33 @@ class Turbine(Stage):
                 self.np = 1
                 
         m_frac = self.np*(self.gam_g-1)/self.gam_g
-        self.Pe = self.Pi*(1- (self.Ti-self.Te)/self.Ti )**(1/m_frac)
+        self.Poe = self.Poi*(1- (self.Toi-self.Toe)/self.Ti )**(1/m_frac)
         
 class Nozzle(Stage):
-    def __init_(self, **kwargs):
+    def __init_(self, air_type='hot', **kwargs):
         Stage.__init__(self, **kwargs)
-        # Hello
-        print(None)
+        
+        if air_type == 'hot':
+            self.gam = self.gam_g
+        else:
+            self.gam = self.gam_a
+        
+    def calculate(self):
+        # Check if choked
+        Tc = self.Toi*(2/(self.gam_g+1))
+        Pc = self.Poi*(1 - (1/self.ni)*(1-Tc/self.Toi))**(self.gam/(self.gam-1))
+        
+        P_rat = self.Poi/self.Pa
+        P_crit = self.Poi/self.Pc
+        if P_rat > P_crit:
+            # Nozzle is choked
+            self.Pe = self.Pc
+        else:
+            self.Pe = self.Pa
+        # This equation remains the same
+        self.Te = self.Toi(1 - self.ni)*(1 - (self.Pe/self.Poi)**((self.gam-1)/self.gam))
     
+            
 class Engine():
     def __init__(self):
         print(None)
