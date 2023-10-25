@@ -4,13 +4,15 @@ Created on Thu Aug 24 09:45:15 2023
 
 @author: cycon
 """
-import GasDynamics as GD
+import sys
+sys.path.append('/Lib/')
+# import Lib.GasDynamics as GD
 import numpy as np
-import EngineErrors
+import Lib.EngineErrors as EngineErrors
 
 # Use to define the general states/functions shared by each/most stages
 class Stage():
-    def __init_(self, **kwargs):
+    def __init__(self, **kwargs):
         '''
 
         Parameters
@@ -40,7 +42,7 @@ class Stage():
         self.Vi  = kwargs.get('Vi')
         
         self.m_dot = kwargs.get('m_dot') # Stays constant through component
-        self.ni   = kwargs.get('ni', default=1) # Isentropic efficiency
+        self.ni   = kwargs.get('ni', 1) # Isentropic efficiency
         
         self.Toe = kwargs.get('Toe')
         self.Poe = kwargs.get('Poe')
@@ -61,7 +63,7 @@ class Stage():
         
         
 class Intake(Stage):
-    def __init_(self, **kwargs):
+    def __init__(self, **kwargs):
         Stage.__init__(self, **kwargs)
         # NOTE: Ram efficiency ~= Isentropic Efficiency
         
@@ -76,11 +78,11 @@ class Intake(Stage):
         
         # Now we should have mach num no matter what
         # and the static props (atm props)
-        self.Toe = self.Ti * GD.To_T_ratio(self.Mi, self.gam_a)
+        self.Toe = self.Ti * (1 + (self.gam_a-1)*(self.Mi**2)/2)
         self.Poe = self.Pi * (1 + self.ni*(self.Mi**2)*(self.gam_a-1)/2)**(self.gam_a/(self.gam_a-1))
         
 class Compressor(Stage):
-    def __init_(self, **kwargs):
+    def __init__(self, **kwargs):
         Stage.__init__(self, **kwargs)
         # Adding PR and BPR
         self.r = kwargs.get('rc') # Pressure Ratio of stage
@@ -186,7 +188,7 @@ class Combustor(Stage):
          
 
 class Turbine(Stage):
-    def __init_(self, Comp_to_power, **kwargs):
+    def __init__(self, Comp_to_power, **kwargs):
         Stage.__init__(self, **kwargs)
         self.np = self.kwargs('np') # Polytropic efficiency
         self.nm = self.kwargs('nm',1)
@@ -214,7 +216,7 @@ class Turbine(Stage):
         self.Poe = self.Poi*(1- (self.Toi-self.Toe)/self.Ti )**(1/m_frac)
         
 class Nozzle(Stage):
-    def __init_(self, air_type='hot', **kwargs):
+    def __init__(self, air_type='hot', **kwargs):
         Stage.__init__(self, **kwargs)
         
         if air_type == 'hot':
