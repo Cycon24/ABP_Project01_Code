@@ -81,7 +81,7 @@ class Compressor(Stage):
     def __init_(self, **kwargs):
         Stage.__init__(self, **kwargs)
         # Adding PR and BPR
-        self.r = kwargs.get('r') # Pressure Ratio of stage
+        self.r = kwargs.get('rc') # Pressure Ratio of stage
         self.BPR = kwargs.get('BPR', default=1) # Bypass Ratio: total mass flow (air)/mass flow through core
         self.np = kwargs.get('np') # Polytropic efficiency
         
@@ -98,7 +98,9 @@ class Compressor(Stage):
         n_frac =  (self.gam_a-1)/(self.gam_a*self.np)
         self.Toe = self.Toi + self.Toi*(self.r**n_frac - 1)
         self.Poe = self.r*self.Poi
+        self.Power = self.m_dot*self.cp_a*(self.Te-self.Ti)
         # Done
+        
     
     def forward(self, next_Stage_hot, next_Stage_cold=None):
         next_Stage_hot.Toi = self.Toe
@@ -182,12 +184,33 @@ class Combustor(Stage):
          
 
 class Turbine(Stage):
-    def __init_(self, **kwargs):
+    def __init_(self, Comp_to_power, **kwargs):
         Stage.__init__(self, **kwargs)
-        # Hello
-        print(None)
-
-
+        self.np = self.kwargs('np') # Polytropic efficiency
+        self.nm = self.kwargs('nm',1)
+        self.Pc = Comp_to_power.Power # The power USAGE of compressor
+        # Will have inlet temp, compressor power
+        self.r  = self.kwargs('rt') # Add for later, not used now
+        # this will be for generators or when turbine pressure ratio is specified
+        
+    def calculate(self):
+        self.Power = self.Pc/self.nm
+        # Calculate exit temp
+        self.Te = self.Ti - self.Power/(self.m_dot*self.cp_g)
+        
+        if self.np == None:
+            if self.r != None:
+                # Calculate np
+                self.np = np.log(1- self.ni*(1 - self.r**((self.gam_g-1)/self.gam_g)))
+                self.np /= np.log(self.r)*(self.gam_g-1)/self.gam_g
+            else:
+                print('Warning: insufficient parameters given to turbine')
+                print('Continuing assuming polytropic efficiency = 1')
+                self.np = 1
+                
+        m_frac = self.np*(self.gam_g-1)/self.gam_g
+        self.Pe = self.Pi*(1- (self.Ti-self.Te)/self.Ti )**(1/m_frac)
+        
 class Nozzle(Stage):
     def __init_(self, **kwargs):
         Stage.__init__(self, **kwargs)
