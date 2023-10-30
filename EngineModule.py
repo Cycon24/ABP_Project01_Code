@@ -45,7 +45,9 @@ class Stage():
         self.Vi  = kwargs.get('Vi')
         
         self.m_dot = kwargs.get('m_dot') # Stays constant through component
+        self.mdot_ratio = 1 # used to track mass flow ratio through sections
         self.ni   = kwargs.get('ni', 1) # Isentropic efficiency
+        self.BPR = kwargs.get('BPR',1)
         
         self.Toe = kwargs.get('Toe')
         self.Poe = kwargs.get('Poe')
@@ -65,6 +67,7 @@ class Stage():
         next_Stage.Mi  = self.Me
         next_Stage.Vi  = self.Ve
         next_Stage.m_dot = self.m_dot
+        next_Stage.mdot_ratio = self.mdot_ratio
     
     def printOutputs(self):
         form ='{:9.3f}'
@@ -77,14 +80,20 @@ class Stage():
             print('\t Te  = {} K'.format(form).format(self.Te))
         if self.Pe != None:
             print('\t Pe  = {}'.format(form).format(self.Pe))
-        print('\tmdot = {} kg/s'.format(form).format(self.m_dot))
+        if self.m_dot != None:
+            print('\tmdot = {} kg/s'.format(form).format(self.m_dot))
         if self.Me != None:
             print('\t Me  = {}'.format(form).format(self.Me))
         if self.Ve != None:
             print('\t Ve  = {} m/s'.format(form).format(self.Ve))
         if self.Power != None:
             print('\t Pow = {} W'.format(form).format(self.Power))
-        
+        self.extraOutputs()
+    
+    def extraOutputs(self):
+        # Overwrite this and put any extra outputs here within individual stages
+        print('\t MdotRatio = ',self.mdot_ratio)
+        return None
         
 class Intake(Stage):
     def __init__(self, **kwargs):
@@ -118,7 +127,8 @@ class Compressor(Stage):
         self.r = kwargs.get('rc') # Pressure Ratio of stage
         self.BPR = kwargs.get('BPR', 1) # Bypass Ratio: total mass flow (air)/mass flow through core
         self.np = kwargs.get('np') # Polytropic efficiency
-        
+        self.mdot_ratio = 1 # Starts as 1 for fan, will be updated by prior comp if
+                            # different from 1 from forward section
     def calculate(self):
         # Should always have input To and Po, need to calculate power
         # and output To and Po. r will always be given, BPR will affect output 
@@ -132,7 +142,11 @@ class Compressor(Stage):
         n_frac =  (self.gam_a-1)/(self.gam_a*self.np)
         self.Toe = self.Toi + self.Toi*(self.r**n_frac - 1)
         self.Poe = self.r*self.Poi
-        self.Power = self.m_dot*self.cp_a*(self.Toe-self.Toi)
+        
+        if self.m_dot == None:
+            self.Power_ratio = self.mdot_ratio*self.cp_a*(self.Toe-self.Toi)
+        else:
+            self.Power = self.m_dot*self.cp_a*(self.Toe-self.Toi)
         # Done
         
     
@@ -143,6 +157,7 @@ class Compressor(Stage):
         next_Stage_hot.Pi  = self.Pe
         next_Stage_hot.Mi  = self.Me
         next_Stage_hot.Vi  = self.Ve
+        next_Stage_hot.mdot_ratio = self.mdot_ratio
         
         if next_Stage_cold == None:
             next_Stage_hot.m_dot = self.m_dot
@@ -150,18 +165,28 @@ class Compressor(Stage):
             if self.BPR == None:
                 raise EngineErrors.MissingValue('BPR','Compressor')
             else:
-                m_dot_h = self.m_dot/self.BPR
-                m_dot_c = self.m_dot - m_dot_h
-                
-                next_Stage_hot.m_dot = m_dot_h
-                
+                if self.m_dot != None:
+                    m_dot_h = self.m_dot/(1 + self.BPR)
+                    m_dot_c = self.m_dot - m_dot_h
+                    
+                    next_Stage_hot.m_dot = m_dot_h
+                    next_Stage_cold.m_dot = m_dot_c
+                else:
+                    # No inputted mdot
+                    mdot_ratio_h = 1/(1+self.BPR)
+                    
+                    next_Stage_hot.m_dot = None
+                    next_Stage_hot.mdot_ratio = mdot_ratio_h
+                    next_Stage_cold.m_dot = None
+                    # Dont need to send mdot ratio to cold section
+                    
                 next_Stage_cold.Toi = self.Toe
                 next_Stage_cold.Poi = self.Poe
                 next_Stage_cold.Ti  = self.Te
                 next_Stage_cold.Pi  = self.Pe
                 next_Stage_cold.Mi  = self.Me
                 next_Stage_cold.Vi  = self.Ve
-                next_Stage_cold.m_dot = m_dot_c
+               
                 
         
         
@@ -216,24 +241,53 @@ class Combustor(Stage):
              
         self.Poe = self.Poi*(1-self.dPo)
         self.dTo = self.Toe - self.Toi # will use later for f calcs
-         
-
+        
+        if self.f == None:
+            if self.Q != None: 
+                # Assuming non-ideal, will calculate f and use in mass fuel flow
+                self.f = (self.cp_g*self.Toe - self.cp_a*self.Toi) / (self.ni*(self.Q - self.cp_g*self.Toe))
+                
+        if self.m_dot != None and self.f != None:
+            self.m_dot += self.f*self.m_dot
+        elif self.m_dot == None and self.f != None:
+            self.mdot_ratio = (1+self.f)/(self.BPR + 1)
+            
 class Turbine(Stage):
     def __init__(self, Comp_to_power, **kwargs):
         Stage.__init__(self, **kwargs)
         self.StageName = "Turbine"
         self.np = kwargs.get('np') # Polytropic efficiency
         self.nm = kwargs.get('nm',1)
-        self.Compressor = Comp_to_power
+        self.Compressor = Comp_to_power # Could be list
         # Will have inlet temp, compressor power
         self.r  = kwargs.get('rt') # Add for later, not used now
         # this will be for generators or when turbine pressure ratio is specified
         
     def calculate(self):
-        self.Power = self.Compressor.Power/self.nm
-        # Calculate exit temp
-        self.Toe = self.Toi - self.Power/(self.m_dot*self.cp_g)
+        if self.m_dot != None:
+            if type(self.Compressor) == list:
+                com_power = 0
+                for i in range(0,len(self.Compressor)):
+                    com_power += self.Compressor[i].Power
+                self.Power = com_power/self.nm 
+            else:
+                self.Power = self.Compressor.Power/self.nm 
+            # Calculate exit temp
+            self.Toe = self.Toi - self.Power/(self.m_dot*self.cp_g)
+        else:
+            # No m_dot is given, need to power balance based on 
+            # BPR ratios instead
+            if type(self.Compressor) == list:
+                com_power = 0
+                for i in range(0,len(self.Compressor)):
+                    com_power += self.Compressor[i].Power_ratio
+                self.Power_ratio = com_power/self.nm 
+            else:
+                self.Power_ratio = self.Compressor.Power_ratio/self.nm 
+            # Calculate exit temp
+            self.Toe = self.Toi - self.Power_ratio/(self.mdot_ratio*self.cp_g)
         
+            
         if self.np == None:
             if self.r != None:
                 # Calculate np
@@ -265,13 +319,25 @@ class Nozzle(Stage):
         P_crit = self.Poi/Pc
         if P_rat > P_crit:
             # Nozzle is choked
-            self.Pe = Pc
+            if self.Pe == None:
+                self.Pe = Pc
+            else:
+                # We are given exit pressure. For now assuming this
+                # is because Pe = Pa for a fully expanded CD Nozzle
+                self.Te = self.Toi*(1-self.ni*(1-(self.Pe/self.Poi)**((self.gam-1)/self.gam)))
         else:
+            # Nozzle is not choked
             self.Pe = self.Pa
         # This equation remains the same
-        self.Te = self.Toi*2/(self.gam+1)
-        #self.Toi*(1 - self.ni)*(1 - (self.Pe/self.Poi)**((self.gam-1)/self.gam))
-    
+        # self.Te = self.Toi*2/(self.gam+1)
+        self.Te = self.Toi*(1-self.ni*(1-(self.Pe/self.Poi)**((self.gam-1)/self.gam)))
+        self.Me = np.sqrt((2/(self.gam-1))*(self.Toi/self.Te - 1))
+        self.Ve = self.Me*np.sqrt(self.gam*self.R*self.Te)
+        
+        # Stag props at exit
+        self.Toe = self.Toi
+        self.Poe = self.Pe * (1 + (self.gam -1)*(self.Me**2)/2)**(self.gam/(self.gam -1))
+       
             
 class Engine():
     def __init__(self):
@@ -280,7 +346,7 @@ class Engine():
         # outlets of one stage is the inputs for the next stages
         
         
-class Turbofan():
+class Turbofan_SingleSpool():
     def __init__(self, **kwargs):
         # Stages
         # Atm moving
@@ -298,7 +364,9 @@ class Turbofan():
             'Ta': kwargs.get('Ta'),
             'Pa': kwargs.get('Pa'),
             'Vinf': kwargs.get('Vinf'),
-            'Minf': kwargs.get('Minf')}
+            'Minf': kwargs.get('Minf'),
+            'BPR': kwargs.get('BPR',1), # Need this here on case mdot=None
+            'Q_fuel':  kwargs.get('Q_fuel')}# kJ/kg
         # Efficiencies
         ni = kwargs.get('ni',1) # Inlet
         nj = kwargs.get('nj',1) # Nozzle
@@ -314,7 +382,6 @@ class Turbofan():
         dP_b = kwargs.get('dP_combustor') # Decimal pressure drop in combustor
         rfan = kwargs.get('rfan') # Fan PR
         rc   = kwargs.get('rc')   # Compressor PR
-        BPR = kwargs.get('BPR',1) # Bypass Ratio
         # Turbine Inlet
         To_ti = kwargs.get('T_turb_in') # K - Turbine inlet temp
         # Air Mass flow
@@ -322,20 +389,22 @@ class Turbofan():
         
         
         self.inlet = Intake(**gen_kwargs,ni=ni,m_dot=mdot)
-        self.fan = Compressor(**gen_kwargs, rc=rfan, BPR=BPR, np=npf, ni=nf)
+        self.fan = Compressor(**gen_kwargs, rc=rfan, np=npf, ni=nf)
         self.BP_nozzle = Nozzle('cold',**gen_kwargs, ni=nj)
         self.HP_comp = Compressor(**gen_kwargs, rc=rc, np=npc, ni=nc)
         self.combustor = Combustor(**gen_kwargs, Toe=To_ti, dPb_dec=dP_b, ni=nb)
-        self.HP_turb = Turbine(self.HP_comp, **gen_kwargs, nm=nm, ni=nt, np=npt)
-        self.LP_turb = Turbine(self.fan, **gen_kwargs, nm=nm, ni=nt, np=npt)
+        self.HP_turb = Turbine([self.fan, self.HP_comp], **gen_kwargs, nm=nm, ni=nt, np=npt)
         self.nozzle = Nozzle(**gen_kwargs, ni=nj) # Nozzle/Exhaust?
+        
+        self.fan.StageName = 'Fan'
+        self.BP_nozzle.StageName = 'Cold Nozzle'
+        self.nozzle.StageName = 'Hot Nozzle'
         
         self.AllStages = [[self.inlet, None ],
                           [self.fan, None], 
                           [self.HP_comp,  self.BP_nozzle],
                           [self.combustor,None],
                           [self.HP_turb, None],
-                          [self.LP_turb, None],
                           [self.nozzle, None]]
         
     def calculate(self):
@@ -351,8 +420,8 @@ class Turbofan():
             if i != len(self.AllStages)-1: # It is not at the end, so forward
                 if self.AllStages[i+1][1] != None: 
                     # Means that this stage delivers to two stages -> fan
-                    self.AllStages[i,0].forward(self.allStages[i+1][0],self.allStages[i+1][1])
+                    self.AllStages[i][0].forward(self.AllStages[i+1][0],self.AllStages[i+1][1])
                 else:
-                    self.AllStages[i,0].forward(self.allStages[i+1][0])
+                    self.AllStages[i][0].forward(self.AllStages[i+1][0])
                     
     
