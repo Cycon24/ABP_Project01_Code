@@ -2,6 +2,9 @@
 @Author: ZainHita
 Filename: Performance Parameters Functions
 """
+
+import numpy as np
+
 class funcs():
     def __init__(self):
         self.cpg = 1.148e3
@@ -21,6 +24,18 @@ class funcs():
     
     def fct_SFC(self,): # Do we need this?
         ...
+
+    def fct_mdot(self, P, T, A, M, sect): # P_stat, T_stat, Area, Mach number, hot/cold
+        R = 287 # J/(kg.K)
+        rho = P/(R*T)
+        if sect == 'cold':
+            Γ = self.Γa
+        elif sect == 'hot':
+            Γ = self.Γg
+        V = M * np.sqrt(Γ*R*T)
+        mdot = rho * V * A
+        return mdot
+
 
     def fct_TSFC(self, mfdot, F):
         return mfdot/F
