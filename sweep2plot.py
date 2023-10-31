@@ -6,7 +6,8 @@ import BPR_Sweep as bpr
 import fanPR_Sweep as fpr
 import compPR_Sweep as cpr
 from G_Plotter import graphs
-
+import matplotlib.pyplot as plt
+plt.close('all')
 # region BPR
 draw = graphs('BPR')
 

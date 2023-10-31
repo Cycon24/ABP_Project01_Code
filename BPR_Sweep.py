@@ -18,7 +18,7 @@ real_kwargs = RC.turbofan_kwargs.copy()
 functions = funcs()
 
 # Define BPR range
-BPRs = np.linspace(10,20,100)
+BPRs = np.linspace(10,20,100, endpoint=True)
 
 # Inittialize perf param arrays
 F_mdot_r = []
