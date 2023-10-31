@@ -13,7 +13,7 @@ import parameters.idealCycle as IC
 #   Engine Input Parameters
 # =============================================================================
 
-turbofan_kwargs = RC.turbofan_kwargs
+turbofan_kwargs = IC.turbofan_kwargs
 
 # Print Inputs
 print('Inputs')

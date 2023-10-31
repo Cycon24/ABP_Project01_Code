@@ -5,7 +5,7 @@ Filename: Graphical Plotter
 import matplotlib.pyplot as plt 
 from matplotlib.ticker import MultipleLocator
 from matplotlib.lines import Line2D
-from screeninfo import get_monitors
+# from screeninfo import get_monitors
 import numpy as np
 
 plt.ion()  # enable interactive drawing
@@ -14,14 +14,14 @@ class graphs():
     def __init__(self, plotName): # Receives Plot Variable Parameter (BPR/FPR/CPR)
 
         # Determining Figure Size
-        monitors = get_monitors()
-        if monitors:
-            screen_width = monitors[0].width
-            screen_height = monitors[0].height
-        else:
+        # monitors = get_monitors()
+        # if monitors:
+        #     screen_width = monitors[0].width
+        #     screen_height = monitors[0].height
+        # else:
             # Default Values if no monitor information is available
-            screen_width = 1920
-            screen_height = 1080
+        screen_width = 1920
+        screen_height = 1080
 
         width = screen_width / 200 # inches
         height = screen_height / 200 # inches

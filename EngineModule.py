@@ -75,11 +75,11 @@ class Stage():
         if self.Toe != None:
             print('\t Toe = {} K'.format(form).format(self.Toe))
         if self.Poe != None:
-            print('\t Poe = {} '.format(form).format(self.Poe))
+            print('\t Poe = {} Pa'.format(form).format(self.Poe))
         if self.Te != None:
             print('\t Te  = {} K'.format(form).format(self.Te))
         if self.Pe != None:
-            print('\t Pe  = {}'.format(form).format(self.Pe))
+            print('\t Pe  = {} Pa'.format(form).format(self.Pe))
         if self.m_dot != None:
             print('\tmdot = {} kg/s'.format(form).format(self.m_dot))
         if self.Me != None:
