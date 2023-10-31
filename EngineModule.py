@@ -92,7 +92,6 @@ class Stage():
     
     def extraOutputs(self):
         # Overwrite this and put any extra outputs here within individual stages
-        print('\t MdotRatio = ',self.mdot_ratio)
         return None
         
 class Intake(Stage):
@@ -113,6 +112,9 @@ class Intake(Stage):
                 self.Mi = 0
             else:
                 self.Mi = self.Vi/np.sqrt(self.gam_a*self.R*self.Ti)
+        else:
+            if self.Vi == None:
+                self.Vi = self.Mi*np.sqrt(self.gam_a*self.R*self.Ti)
         
         # Now we should have mach num no matter what
         # and the static props (atm props)
@@ -328,8 +330,7 @@ class Nozzle(Stage):
         else:
             # Nozzle is not choked
             self.Pe = self.Pa
-        # This equation remains the same
-        # self.Te = self.Toi*2/(self.gam+1)
+        
         self.Te = self.Toi*(1-self.ni*(1-(self.Pe/self.Poi)**((self.gam-1)/self.gam)))
         self.Me = np.sqrt((2/(self.gam-1))*(self.Toi/self.Te - 1))
         self.Ve = self.Me*np.sqrt(self.gam*self.R*self.Te)
@@ -359,7 +360,7 @@ class Turbofan_SingleSpool():
         # HP Turbine
         # LP Turbine
         # Nozzle
-        
+        self.inputs = kwargs.copy()
         gen_kwargs = {
             'Ta': kwargs.get('Ta'),
             'Pa': kwargs.get('Pa'),
@@ -387,7 +388,7 @@ class Turbofan_SingleSpool():
         # Air Mass flow
         mdot = kwargs.get('mdot_a') # kg/s
         
-        
+        # Define each stage and pass in parameters
         self.inlet = Intake(**gen_kwargs,ni=ni,m_dot=mdot)
         self.fan = Compressor(**gen_kwargs, rc=rfan, np=npf, ni=nf)
         self.BP_nozzle = Nozzle('cold',**gen_kwargs, ni=nj)
@@ -396,10 +397,14 @@ class Turbofan_SingleSpool():
         self.HP_turb = Turbine([self.fan, self.HP_comp], **gen_kwargs, nm=nm, ni=nt, np=npt)
         self.nozzle = Nozzle(**gen_kwargs, ni=nj) # Nozzle/Exhaust?
         
+        # Set names for easier readout checks
         self.fan.StageName = 'Fan'
         self.BP_nozzle.StageName = 'Cold Nozzle'
         self.nozzle.StageName = 'Hot Nozzle'
         
+        # Define all stages in engine to iterate through
+        # Two dimensional since there is a bypass, ie one stage
+        # passes params to two different stages
         self.AllStages = [[self.inlet, None ],
                           [self.fan, None], 
                           [self.HP_comp,  self.BP_nozzle],
@@ -407,21 +412,43 @@ class Turbofan_SingleSpool():
                           [self.HP_turb, None],
                           [self.nozzle, None]]
         
-    def calculate(self):
+    def calculate(self, printVals=True):
         for i in range(0,len(self.AllStages)):
             # Calculate each row and print outputs
             self.AllStages[i][0].calculate()
-            self.AllStages[i][0].printOutputs()
+            if printVals: self.AllStages[i][0].printOutputs()
+            # Check if current stage has a parallel (ie, prev stage passes air to 2 stages)
             if self.AllStages[i][1] != None:
                 self.AllStages[i][1].calculate()
-                self.AllStages[i][1].printOutputs()
+                if printVals: self.AllStages[i][1].printOutputs()
                 
-            # Move forward
+            # Move forward/propogate
             if i != len(self.AllStages)-1: # It is not at the end, so forward
                 if self.AllStages[i+1][1] != None: 
-                    # Means that this stage delivers to two stages -> fan
+                    # Means that this stage delivers to two stages: fan -> HPC & BP Noz
                     self.AllStages[i][0].forward(self.AllStages[i+1][0],self.AllStages[i+1][1])
                 else:
+                    # Stage delivers to one stage
                     self.AllStages[i][0].forward(self.AllStages[i+1][0])
                     
+    def getOutputs(self):
+        outs = {
+            'mdot_c': self.BP_nozzle.m_dot, # bypass flow
+            'mdot_h1': self.HP_comp.m_dot, # core flow
+            'mdot_h2': self.nozzle.m_dot, # core flow + fuel
+            'mdot': self.inlet.m_dot, # air flow in
+            'Ca': self.inlet.Vi, # Initial vel of air
+            'C9': self.nozzle.Ve, # Exhast vel of core
+            'C19': self.BP_nozzle.Ve, # Exhuast vel of bypass
+            'To3': self.combustor.Toi, # combustor inlet temp
+            'To4': self.combustor.Toe, # combustor outlet temp
+            'nb': self.combustor.ni, # combustor efficiency
+            'dH': self.combustor.Q,  # fuel energy
+            'f': self.combustor.f    # air to fuel ratio
+            }
+        return outs
     
+    def printInputs(self):
+        print('Inputs')
+        for key,val in self.inputs.items():
+            print('\t {}  =  {}'.format(key,val))

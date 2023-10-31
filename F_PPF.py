@@ -17,9 +17,9 @@ class funcs():
         F = mcdot * (V9 - Va) + mfdot * (V19 - Va) 
         return F/mdot
 
-    def fct_f(self, T02, T03, T04, T05, nb):
-        num = self.cpg*T03 - self.cpa*T02
-        den = nb*(self.h25 - self.cpg*T03)
+    def fct_f(self, T03, T04, nb):
+        num = self.cpg*T04 - self.cpa*T03
+        den = nb*(self.h25 - self.cpg*T04)
         return num/den
     
     def fct_SFC(self,): # Do we need this?
@@ -35,9 +35,17 @@ class funcs():
         V = M * np.sqrt(Γ*R*T)
         mdot = rho * V * A
         return mdot
+    
+    def fct_mdot2(self,F, BPR, V9, V19, Va, f=0):
+        den = ((1+f)/(BPR+1))*(V9-Va) + (BPR/(BPR+1))*(V19-Va)
+        return F/den
 
 
     def fct_TSFC(self, mfdot, F):
+        # convet mfdot to g/s and F to kN
+        # FOR TURBOFAN
+        mfdot *= 1000
+        F /= 1000
         return mfdot/F
 
     # def fct_nT(self, mdot, Cj, Ca, f):
@@ -45,10 +53,10 @@ class funcs():
     #     den = f*self.h25
     #     return num/den
     
-    def fct_nT(self, T0, Tt0, Tt2, Tt3):
-        num = Tt2 * T0
-        den = Tt3 * T0
-        return (1 - num/den)
+    def fct_nT(self, mdot_0, mdot_h, mdot_c, mdot_f, C9, C19, Ca):
+        num = 0.5*(mdot_h*C9**2 + mdot_c*C19**2 - mdot_0*Ca**2)
+        den = mdot_f*self.h25
+        return num/den
     
     # def fct_nP(self, Cj, Ca):
     #     num = 2
@@ -56,8 +64,8 @@ class funcs():
     #     return num/den
 
     def fct_nP(self, m0dot, mcdot, mhdot, C0, C9, C19):
-        num = C0 * (mcdot*(C19 - C0) + mhdot(C9 - C0))
-        den = 0.5 * (mhdot*C9**2 + mcdot*C19**2 - m0dot)
+        num = C0 * (mcdot*(C19 - C0) + mhdot*(C9 - C0))
+        den = 0.5 * (mhdot*C9**2 + mcdot*C19**2 - m0dot*C0**2)
         return num/den
         
     def fct_nO(self, nP, nT):
